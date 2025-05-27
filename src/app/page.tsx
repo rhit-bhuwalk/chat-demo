@@ -6,6 +6,13 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   searchQuery?: string;
+  fileName?: string;
+}
+
+interface UploadedFile {
+  name: string;
+  content: string;
+  size: number;
 }
 
 export default function Chat() {
@@ -13,7 +20,10 @@ export default function Chat() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -104,6 +114,134 @@ export default function Chat() {
     }
   };
 
+  // File processing with safety checks
+  const ALLOWED_FILE_TYPES = [
+    'text/plain',
+    'text/csv',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/json'
+  ];
+  
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB limit
+  const MAX_TEXT_LENGTH = 50000; // Character limit for processed text
+
+  const parseFileContent = async (file: File): Promise<string> => {
+    // Handle PDF files differently - send to server for parsing
+    if (file.type === 'application/pdf') {
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const response = await fetch('/api/parse-pdf', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to parse PDF');
+        }
+        
+        if (result.success) {
+          const pageInfo = result.metadata?.pages ? ` (${result.metadata.pages} pages)` : '';
+          return `[PDF File: ${file.name}${pageInfo}]\n\n${result.text}`;
+        } else {
+          throw new Error('PDF parsing failed');
+        }
+      } catch (error) {
+        console.error('PDF parsing error:', error);
+        throw new Error(`Failed to parse PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+    
+    // Handle other file types with FileReader
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        try {
+          let content = '';
+          
+          if (file.type === 'text/plain' || file.type === 'text/csv' || file.type === 'application/json') {
+            content = e.target?.result as string;
+          } else if (file.type.includes('word') || file.type.includes('document')) {
+            // Word docs would need additional libraries
+            content = `[Word Document: ${file.name}] - Document parsing would require additional libraries`;
+          } else {
+            content = e.target?.result as string;
+          }
+          
+          // Safety check: limit text length
+          if (content.length > MAX_TEXT_LENGTH) {
+            content = content.substring(0, MAX_TEXT_LENGTH) + '\n\n[Content truncated due to length...]';
+          }
+          
+          // Basic content sanitization
+          content = content.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '[Script removed for security]');
+          
+          resolve(content);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsText(file);
+    });
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Safety checks
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      alert('Unsupported file type. Please upload: TXT, CSV, PDF, Word documents, or JSON files.');
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      alert('File too large. Maximum size is 10MB.');
+      return;
+    }
+
+    setIsProcessingFile(true);
+
+    try {
+      const content = await parseFileContent(file);
+      
+      const fileData: UploadedFile = {
+        name: file.name,
+        content: content,
+        size: file.size
+      };
+      
+      setUploadedFile(fileData);
+      
+      // Auto-populate input with file reference
+      setInput(`Please analyze this file: ${file.name}\n\nFile content:\n${content}`);
+      
+    } catch (error) {
+      console.error('Error processing file:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error processing file. Please try again.';
+      alert(errorMessage);
+    } finally {
+      setIsProcessingFile(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const removeFile = () => {
+    setUploadedFile(null);
+    setInput('');
+  };
+
   return (
     <div className="flex flex-col h-screen bg-white">
       {/* Header */}
@@ -189,7 +327,7 @@ export default function Chat() {
                     key={index}
                     onClick={() => handleStarterClick(starter)}
                     disabled={isLoading}
-                    className="text-left p-3 text-sm bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="text-left p-3 text-sm text-black bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {starter}
                   </button>
@@ -197,8 +335,44 @@ export default function Chat() {
               </div>
             </div>
           )}
+
+          {/* File Preview */}
+          {uploadedFile && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 0v12h8V4H6z" clipRule="evenodd" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium text-blue-800">{uploadedFile.name}</p>
+                    <p className="text-xs text-blue-600">
+                      {(uploadedFile.size / 1024).toFixed(1)} KB • Ready to analyze
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={removeFile}
+                  className="text-blue-600 hover:text-blue-800 p-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
           
           <form onSubmit={sendMessage} className="flex space-x-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={handleFileUpload}
+              accept=".txt,.csv,.pdf,.doc,.docx,.json"
+              className="hidden"
+              disabled={isLoading || isProcessingFile}
+            />
             <input
               type="text"
               value={input}
@@ -207,6 +381,21 @@ export default function Chat() {
               className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-800 focus:border-transparent placeholder-gray-500 text-black"
               disabled={isLoading}
             />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading || isProcessingFile}
+              className="bg-gray-200 hover:bg-gray-300 text-gray-700 p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Upload file"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M6 8h12"/>
+                <path d="M18 8v6a2 2 0 01-2 2H8a2 2 0 01-2-2V8"/>
+                <circle cx="6" cy="8" r="2"/>
+                <path d="M6 6V4a2 2 0 012-2h8a2 2 0 012 2v2"/>
+                <path d="M10 12h4"/>
+              </svg>
+            </button>
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
