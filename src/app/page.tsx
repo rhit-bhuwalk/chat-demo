@@ -92,6 +92,18 @@ export default function Chat() {
     }
   };
 
+  const conversationStarters = [
+    "What are the latest building codes and regulations?",
+    "Can you help me with civil engineering project planning?",
+    "What are current construction material prices?"
+  ];
+
+  const handleStarterClick = (starter: string) => {
+    if (!isLoading) {
+      setInput(starter);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-white">
       {/* Header */}
@@ -167,6 +179,25 @@ export default function Chat() {
       {/* Input */}
       <div className="border-t border-gray-200 p-4">
         <div className="max-w-2xl mx-auto">
+          {/* Conversation Starters */}
+          {messages.length === 0 && (
+            <div className="mb-4 space-y-2">
+              <p className="text-sm text-gray-600 mb-3">Try these conversation starters:</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                {conversationStarters.map((starter, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleStarterClick(starter)}
+                    disabled={isLoading}
+                    className="text-left p-3 text-sm bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {starter}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          
           <form onSubmit={sendMessage} className="flex space-x-2">
             <input
               type="text"
