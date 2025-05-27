@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Dynamically import pdf-parse to avoid build-time issues
+    // Dynamically import pdf-parse with better error handling for production
     const { default: pdf } = await import('pdf-parse');
     
     // Parse PDF
@@ -53,8 +53,13 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('PDF parsing error:', error);
+    
+    // More detailed error messages for debugging
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    console.error('Full error details:', errorMessage);
+    
     return NextResponse.json(
-      { error: 'Failed to parse PDF. The file may be corrupted or password-protected.' },
+      { error: `Failed to parse PDF: ${errorMessage}. The file may be corrupted, password-protected, or unsupported.` },
       { status: 500 }
     );
   }

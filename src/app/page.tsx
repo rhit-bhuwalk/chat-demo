@@ -103,7 +103,7 @@ export default function Chat() {
   };
 
   const conversationStarters = [
-    "What are the latest building codes and regulations?",
+    "What are the latest building codes and regulations in Monroe county?",
     "Can you help me with civil engineering project planning?",
     "What are current construction material prices?"
   ];

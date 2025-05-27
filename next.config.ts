@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverComponentsExternalPackages: ['pdf-parse'],
+  },
   webpack: (config, { isServer }) => {
     // Exclude test files and directories from the build
     config.module.rules.push({
